@@ -22,7 +22,7 @@ app = Flask(__name__)
 
 # Load glossary from JSON
 def load_glossary():
-    with open("glossary.json", "r", encoding="utf-8") as f:
+    with open("data/glossary.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
 glossary = load_glossary()
