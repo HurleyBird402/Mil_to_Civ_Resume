@@ -97,6 +97,26 @@ def home():
 
 @app.route("/glossary", methods=["GET", "POST"])
 def edit_glossary():
+    # --- Simple password protection ---
+    admin_password = os.getenv("ADMIN_PASSWORD")
+    user_password = request.args.get("pw")
+
+    if not user_password or user_password != admin_password:
+        return """
+            <html>
+                <head><title>Unauthorized</title></head>
+                <body style='font-family: Arial; text-align: center; padding-top: 5rem;'>
+                    <h2>🔒 Access Restricted</h2>
+                    <p>You must provide the correct admin password to view this page.</p>
+                    <form method='get'>
+                        <input type='password' name='pw' placeholder='Enter password' style='padding:8px;'/>
+                        <button type='submit' style='padding:8px 16px;'>Enter</button>
+                    </form>
+                </body>
+            </html>
+        """
+
+    # --- Existing glossary code below ---
     message = ""
 
     if request.method == "POST":
@@ -105,7 +125,7 @@ def edit_glossary():
 
         if military_term and civilian_term:
             glossary[military_term] = civilian_term
-            with open("glossary.json", "w", encoding="utf-8") as f:
+            with open("data/glossary.json", "w", encoding="utf-8") as f:
                 json.dump(glossary, f, indent=4)
             message = f"✅ Added/Updated term: '{military_term}' → '{civilian_term}'"
         else:
