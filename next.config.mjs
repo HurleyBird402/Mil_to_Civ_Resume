@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true
+  serverExternalPackages: ["pdf-extraction"], // Prevents build errors with the PDF reader
 };
 
 export default nextConfig;
