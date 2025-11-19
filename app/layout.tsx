@@ -1,0 +1,21 @@
+import './globals.css';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Objective Omega',
+  description: 'Military to Civilian Resume Translator',
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body suppressHydrationWarning>
+        {children}
+      </body>
+    </html>
+  );
+}
