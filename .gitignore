@@ -29,3 +29,5 @@ Thumbs.db
 
 # Firebase admin keys (extra safety)
 serviceAccount.json
+.vercel
+.env*.local
