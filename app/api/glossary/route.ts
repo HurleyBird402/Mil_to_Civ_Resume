@@ -60,3 +60,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to save" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    // 1. Security Check (Always first!)
+    const password = req.headers.get("x-admin-password");
+    if (password !== ADMIN_PASSWORD) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // 2. Get the term to delete
+    const body = await req.json();
+    const { term } = body;
+
+    if (!term) {
+      return NextResponse.json({ error: "Term required" }, { status: 400 });
+    }
+
+    // 3. Remove from Redis
+    if (isRedisConfigured()) {
+       // HDEL = Hash Delete. It removes the specific key from our glossary hash.
+       await redis.hdel("glossary:terms", term);
+       return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json({ error: "Database disconnected" }, { status: 500 });
+
+  } catch (error) {
+    console.error("DELETE ERROR:", error);
+    return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
+  }
+}
