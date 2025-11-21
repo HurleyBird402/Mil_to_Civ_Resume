@@ -2,78 +2,60 @@ import { NextRequest, NextResponse } from "next/server";
 import { openaiClient, SYSTEM_PROMPT } from "@/lib/openai";
 import { applyGlossaryToText, getGlossary } from "@/lib/glossary";
 
-export const runtime = "nodejs";
-
 export async function POST(req: NextRequest) {
   try {
-    const { text } = await req.json();
+    // 1. Read Body
+    const body = await req.json();
+    const { text, contactOverrides } = body;
 
     if (!text) {
-      return NextResponse.json(
-        { error: "No text provided." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No text provided" }, { status: 400 });
     }
 
-    // 1. Glossary Preprocessing (Offline Mode)
+    // 2. Glossary Processing
     const glossary = await getGlossary();
     const preprocessed = applyGlossaryToText(text, glossary);
 
-    // 2. OpenAI Call
-    const response = await openaiClient.responses.create({
-      model: "gpt-4.1-mini", // Or "gpt-4o-mini"
-      input: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: `
-            Analyze the following military resume text.
-            Translate it and format it into the strict JSON structure defined in the system prompt.
-            
-            USER RESUME TEXT:
-            ${preprocessed}
-          `.trim(),
+    // 3. AI Processing
+    const response = await openaiClient.chat.completions.create({
+      model: "gpt-4-turbo",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { 
+          role: "user", 
+          content: `Analyze/Translate this military resume text:\n${preprocessed}` 
         },
       ],
     });
 
-    const rawOutput = response.output_text ?? "";
-
-    // 3. Clean and Parse JSON
-    const cleanJson = rawOutput
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
+    const rawOutput = response.choices[0].message.content ?? "";
+    const cleanJson = rawOutput.replace(/```json/g, "").replace(/```/g, "").trim();
 
     let parsedResume;
     try {
       parsedResume = JSON.parse(cleanJson);
-    } catch (parseError) {
-      console.error("JSON Parse Error:", parseError);
-      return NextResponse.json({
-        error: "Failed to parse resume structure",
-        output: rawOutput,
-        originalText: text 
-      });
+
+      // 4. APPLY OVERRIDES (The "Source of Truth")
+      if (contactOverrides) {
+         parsedResume.contactInfo = {
+            ...parsedResume.contactInfo,
+            name: contactOverrides.name || parsedResume.contactInfo.name,
+            phone: contactOverrides.phone || parsedResume.contactInfo.phone,
+            email: contactOverrides.email || parsedResume.contactInfo.email,
+         };
+      }
+
+    } catch (e) {
+      return NextResponse.json({ error: "AI JSON Parse Failed", output: rawOutput });
     }
 
-    // 4. Return Success
-    return NextResponse.json({
-      output: parsedResume,
-      originalText: text, // Pass back the original text for the comparison view
+    return NextResponse.json({ 
+        output: parsedResume,
+        originalText: text 
     });
 
-  } catch (err: any) {
-    console.error("❌ Error in /api/convert:", err);
-    return NextResponse.json(
-      {
-        error: "Conversion failed",
-        details: err.message ?? "Unknown error",
-      },
-      { status: 500 }
-    );
+  } catch (error: any) {
+    console.error("Error processing text:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

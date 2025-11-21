@@ -6,8 +6,16 @@ import ResumeComparison from "./ResumeComparison";
 import { generateAndDownloadDocx } from "@/lib/docx-generator";
 
 export default function ResumeConverterForm() {
+  // --- CONTACT STATE ---
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+
+  // --- MISSION STATE ---
   const [text, setText] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
+  
+  // --- OUTPUT STATE ---
   const [structuredOutput, setStructuredOutput] = useState<ResumeData | null>(null);
   const [originalText, setOriginalText] = useState("");
   const [rawOutput, setRawOutput] = useState("");
@@ -29,21 +37,47 @@ export default function ResumeConverterForm() {
 
     try {
       let res;
+      
+      // 1. Prepare the Contact Overrides
+      const contactOverrides = {
+        name: contactName,
+        phone: contactPhone,
+        email: contactEmail
+      };
+
+      // 2. Send Request
       if (pdfFile) {
         const formData = new FormData();
         formData.append("file", pdfFile);
+        // Append contact info to FormData
+        formData.append("contactOverrides", JSON.stringify(contactOverrides));
+        
         res = await fetch("/api/convert-pdf", { method: "POST", body: formData });
       } else {
         res = await fetch("/api/convert", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ 
+            text,
+            // Send contact info in JSON body
+            contactOverrides 
+          }),
         });
       }
 
+      // 3. Error Handling
       if (!res.ok) {
-        const errJson = await res.json();
-        throw new Error(errJson.error || "Something went wrong");
+        if (res.status === 413) throw new Error("File is too large. Please upload a PDF smaller than 4MB.");
+        if (res.status === 504) throw new Error("The AI took too long. Please try again.");
+
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+            const errJson = await res.json();
+            throw new Error(errJson.error || "Unknown server error");
+        } else {
+            const errText = await res.text();
+            throw new Error(errText || `Server Error (${res.status})`);
+        }
       }
 
       const data = await res.json();
@@ -55,9 +89,10 @@ export default function ResumeConverterForm() {
       } else {
         setRawOutput(data.output || "No output received.");
       }
+
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Error processing resume.");
+      console.error("Submission Error:", err);
+      setError(err.message || "An unexpected error occurred.");
     } finally {
       setLoading(false);
     }
@@ -72,49 +107,90 @@ export default function ResumeConverterForm() {
   return (
     <div className="space-y-8">
       
-      {/* === INPUT CARD (DARK THEME) === */}
+      {/* === INPUT CARD === */}
       <div className={`bg-omega-800 rounded-xl shadow-2xl border border-gray-800 overflow-hidden transition-all duration-500 ${structuredOutput ? 'opacity-60 hover:opacity-100' : ''}`}>
         
-        {/* Card Header */}
+        {/* --- STEP 1: CONTACT INTEL --- */}
         <div className="bg-black/40 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
           <h2 className="font-bold text-gray-200 flex items-center gap-3">
             <span className="flex items-center justify-center w-6 h-6 rounded bg-omega-gold text-black text-xs font-bold">1</span>
-            MISSION INPUT
+            CONTACT INTEL
+          </h2>
+          <span className="text-xs text-gray-500 uppercase font-semibold">Optional</span>
+        </div>
+
+        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-gray-800/50">
+          <div>
+            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Full Name</label>
+            <input 
+              type="text" 
+              placeholder="e.g. John Doe"
+              value={contactName}
+              onChange={(e) => setContactName(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-700 text-white rounded p-3 focus:border-omega-gold outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Phone</label>
+            <input 
+              type="text" 
+              placeholder="e.g. (555) 123-4567"
+              value={contactPhone}
+              onChange={(e) => setContactPhone(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-700 text-white rounded p-3 focus:border-omega-gold outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Email</label>
+            <input 
+              type="text" 
+              placeholder="e.g. john@example.com"
+              value={contactEmail}
+              onChange={(e) => setContactEmail(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-700 text-white rounded p-3 focus:border-omega-gold outline-none"
+            />
+          </div>
+        </div>
+
+        {/* --- STEP 2: MISSION DATA --- */}
+        <div className="bg-black/40 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
+          <h2 className="font-bold text-gray-200 flex items-center gap-3">
+            <span className="flex items-center justify-center w-6 h-6 rounded bg-omega-gold text-black text-xs font-bold">2</span>
+            MISSION DATA
           </h2>
           <span className="text-xs text-omega-gold tracking-widest uppercase font-semibold">Secure Terminal</span>
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Text Area */}
           <div className="relative">
             <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
-              Paste Resume Text
+              PASTE RESUME OR OER/NCOER BULLETS HERE
             </label>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               disabled={!!pdfFile}
-              placeholder=">> PASTE MILITARY BULLETS HERE..."
+              placeholder=">> PASTE BULLETS OR RESUME TEXT HERE..."
               className="w-full bg-gray-900 border border-gray-700 text-gray-300 rounded-lg p-4 min-h-[150px] focus:ring-1 focus:ring-omega-gold focus:border-omega-gold outline-none transition-all disabled:opacity-50 placeholder:text-gray-600 font-mono text-sm"
             />
           </div>
 
-          {/* Divider */}
-          <div className="relative flex items-center py-2">
+          <div className="relative flex items-center py-4">
             <div className="flex-grow border-t border-gray-700"></div>
-            <span className="flex-shrink-0 mx-4 text-gray-500 text-xs font-bold uppercase">OR UPLOAD PDF</span>
+            <span className="flex-shrink-0 mx-4 text-gray-500 text-[10px] font-bold uppercase tracking-wide text-center max-w-[200px] sm:max-w-none">
+               OR UPLOAD A PDF RESUME / PDF WITH PASTED OER BULLETS
+            </span>
             <div className="flex-grow border-t border-gray-700"></div>
           </div>
 
-          {/* File Upload Zone */}
           <div className={`relative border border-dashed rounded-lg p-8 text-center transition-colors duration-300 ${pdfFile ? 'border-omega-gold bg-omega-gold/10' : 'border-gray-600 hover:border-gray-500 hover:bg-gray-800'}`}>
             <input
               type="file"
               accept="application/pdf"
               onChange={handlePdfUpload}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
             />
-            <div className="space-y-3">
+            <div className="space-y-3 relative z-0">
               {pdfFile ? (
                 <div className="flex items-center justify-center gap-2 text-omega-gold font-mono">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -125,13 +201,15 @@ export default function ResumeConverterForm() {
                   <div className="mx-auto w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center text-gray-400">
                     <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                   </div>
-                  <p className="text-sm text-gray-400 font-medium">Drop PDF File Here</p>
+                  <p className="text-sm text-gray-300 font-medium">Drop PDF Resume or Bullet List Here</p>
+                  <p className="text-xs text-red-400/80 max-w-md mx-auto mt-2 border border-red-900/30 bg-red-900/10 p-2 rounded">
+                    <span className="font-bold">⚠️ PRIVACY NOTICE:</span> We do not accept raw OER/NCOER forms. Please ensure all uploaded PDFs are sanitized of PII.
+                  </p>
                 </>
               )}
             </div>
           </div>
 
-          {/* Action Button (THE GOLD BUTTON) */}
           <div className="flex justify-end pt-4">
             <button
               onClick={handleSubmit}
@@ -159,23 +237,21 @@ export default function ResumeConverterForm() {
           </div>
           
           {error && (
-            <div className="p-4 bg-red-900/20 border-l-2 border-red-600 text-red-400 text-sm font-mono">
+            <div className="p-4 bg-red-900/20 border-l-2 border-red-600 text-red-400 text-sm font-mono animate-in fade-in slide-in-from-top-2">
               <span className="font-bold">ERROR:</span> {error}
             </div>
           )}
         </div>
       </div>
 
-      {/* === RESULTS SECTION === */}
+      {/* === RESULTS === */}
       {structuredOutput && (
         <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
-          
           <div className="flex flex-col sm:flex-row justify-between items-end sm:items-center mb-6 gap-4 border-b border-gray-800 pb-4">
              <div>
                <h2 className="text-2xl font-bold text-white">MISSION COMPLETE</h2>
                <p className="text-gray-400 text-sm">Review draft below. Export for distribution.</p>
              </div>
-             
              <div className="flex gap-3">
                 <button 
                   onClick={() => window.print()}
@@ -183,7 +259,6 @@ export default function ResumeConverterForm() {
                 >
                   PRINT PDF
                 </button>
-
                 <button 
                   onClick={handleDownloadDocx}
                   className="flex items-center gap-2 px-5 py-2 text-sm font-bold text-black bg-white rounded hover:bg-gray-200 shadow-md hover:shadow-lg transition-all"
@@ -193,9 +268,6 @@ export default function ResumeConverterForm() {
                 </button>
              </div>
           </div>
-
-          {/* The Resume Display remains mostly White/Clean for readability, but we can pass a 'theme' if needed later. 
-              For now, keep it professional white paper style. */}
           <ResumeComparison 
             originalText={originalText} 
             civilianData={structuredOutput} 
@@ -203,7 +275,7 @@ export default function ResumeConverterForm() {
         </div>
       )}
 
-      {/* Fallback View */}
+      {/* Fallback */}
       {rawOutput && (
         <div className="mt-8 bg-omega-800 p-6 rounded-xl shadow-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-white">Raw Intel Output</h2>

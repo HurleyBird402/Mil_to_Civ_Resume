@@ -1,111 +1,101 @@
-// app/api/convert-pdf/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { openaiClient, SYSTEM_PROMPT } from "@/lib/openai";
 import { applyGlossaryToText, getGlossary } from "@/lib/glossary";
 
+// Standard Node Runtime for PDF processing
 export const runtime = "nodejs";
 
 export const config = {
   api: {
     bodyParser: false,
-    sizeLimit: "20mb",
+    sizeLimit: "4.5mb",
   },
 };
 
 export async function POST(req: NextRequest) {
   try {
-    // Dynamic import for pdf-extraction (CommonJS module)
-    const { default: pdf } = await import("pdf-extraction");
+    const pdfjs = await import("pdfjs-dist/build/pdf.min.mjs");
+    await import("pdfjs-dist/build/pdf.worker.min.mjs");
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
+    
+    // 1. Extract Contact Overrides
+    const contactOverridesJson = formData.get("contactOverrides") as string | null;
+    const contactOverrides = contactOverridesJson ? JSON.parse(contactOverridesJson) : null;
 
     if (!file || file.type !== "application/pdf") {
-      return NextResponse.json(
-        { error: "PDF file missing or invalid." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "PDF file missing." }, { status: 400 });
     }
 
     const arrayBuffer = await file.arrayBuffer();
-    const pdfBuffer = Buffer.from(arrayBuffer);
+    const pdfData = new Uint8Array(arrayBuffer);
+    let extractedText = "";
 
-    // 1. Extract PDF text
-    const data = await pdf(pdfBuffer);
-    // We keep this 'extractedText' to send back to the frontend for the comparison view
-    const extractedText = data.text?.trim() ?? "";
+    // PDF Extraction Logic
+    try {
+        const loadingTask = pdfjs.getDocument({ data: pdfData });
+        const pdfDocument = await loadingTask.promise;
+        for (let i = 1; i <= pdfDocument.numPages; i++) {
+            const page = await pdfDocument.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map((item: any) => item.str).join(" ");
+            extractedText += `\n${pageText}`;
+        }
+    } catch (parseError: any) {
+        console.error("❌ PDF Engine Error:", parseError);
+        return NextResponse.json({ error: "Failed to parse PDF structure." }, { status: 400 });
+    }
 
-    if (!extractedText) {
+    if (!extractedText || extractedText.trim().length < 20) {
       return NextResponse.json(
-        { error: "Unable to extract text from PDF." },
+        { error: "No text found. This might be an image-only scan." },
         { status: 400 }
       );
     }
 
-    // 2. Glossary preprocessing
+    // Glossary & AI
     const glossary = await getGlossary();
     const preprocessed = applyGlossaryToText(extractedText, glossary);
 
-    // 3. Call OpenAI (asking for JSON output via the updated SYSTEM_PROMPT)
-    const response = await openaiClient.responses.create({
-      model: "gpt-4.1-mini", 
-      input: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: `
-            Analyze the following military resume text.
-            Translate it and format it into the strict JSON structure defined in the system prompt.
-            
-            USER RESUME TEXT:
-            ${preprocessed}
-          `.trim(),
+    const response = await openaiClient.chat.completions.create({
+      model: "gpt-4-turbo",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { 
+          role: "user", 
+          content: `Analyze/Translate this military resume:\n${preprocessed}` 
         },
       ],
     });
 
-    const rawOutput = response.output_text ?? "";
-
-    // 4. Parse the Output into JSON
-    // OpenAI often wraps JSON in markdown code blocks (e.g. ```json ... ```). We strip them.
-    const cleanJson = rawOutput
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
+    const rawOutput = response.choices[0].message.content ?? "";
+    const cleanJson = rawOutput.replace(/```json/g, "").replace(/```/g, "").trim();
 
     let parsedResume;
-    
     try {
       parsedResume = JSON.parse(cleanJson);
-    } catch (parseError) {
-      console.error("JSON Parse Error:", parseError);
-      console.log("Raw Output meant for JSON:", rawOutput);
       
-      // Fallback: If JSON parsing fails, return an object with the error and raw text
-      // This prevents the frontend from crashing entirely
-      return NextResponse.json({
-        error: "Failed to parse resume structure",
-        output: rawOutput, 
-        originalText: extractedText
-      });
+      // 2. APPLY OVERRIDES (The "Source of Truth")
+      if (contactOverrides) {
+         parsedResume.contactInfo = {
+            ...parsedResume.contactInfo, // Keep location if AI found it
+            name: contactOverrides.name || parsedResume.contactInfo.name,
+            phone: contactOverrides.phone || parsedResume.contactInfo.phone,
+            email: contactOverrides.email || parsedResume.contactInfo.email,
+         };
+      }
+
+    } catch (e) {
+      return NextResponse.json({ error: "AI JSON Parse Failed", output: rawOutput });
     }
 
-    // 5. Return the Structured Data AND the Original Text
-    return NextResponse.json({
-      output: parsedResume,      // The polished JSON object
-      originalText: extractedText, // The raw text for the "Before" view
-    });
+    return NextResponse.json({ output: parsedResume, originalText: extractedText });
 
   } catch (err: any) {
-    console.error("❌ Error in /api/convert-pdf:", err);
+    console.error("❌ Route Error:", err);
     return NextResponse.json(
-      {
-        error: "PDF conversion failed",
-        details: err.message ?? "Unknown error",
-      },
+      { error: "Conversion failed", details: err.message },
       { status: 500 }
     );
   }

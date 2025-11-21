@@ -1,12 +1,14 @@
-// middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export const config = {
-  matcher: ["/admin/:path*"], // Locks /admin and anything under it
+  // Let's make the matcher explicitly catch the root and subpaths
+  matcher: ["/admin", "/admin/:path*"], 
 };
 
 export function middleware(req: NextRequest) {
-  // 1. Get the username/password from the browser's built-in prompt
+  // --- DEBUG LOG ---
+  console.log("🛡️ MIDDLEWARE TRIGGERED on path:", req.nextUrl.pathname);
+
   const basicAuth = req.headers.get("authorization");
   const url = req.nextUrl;
 
@@ -14,17 +16,16 @@ export function middleware(req: NextRequest) {
     const authValue = basicAuth.split(" ")[1];
     const [user, pwd] = atob(authValue).split(":");
 
-    // 2. CHECK CREDENTIALS (Change these!)
-    // In a real app, these should be in process.env, but for a quick lock, this works.
     const validUser = "commander";
-    const validPass = "omega-secure-123"; // matches your "adminPassword" concept
+    const validPass = "omega-secure-123";
 
     if (user === validUser && pwd === validPass) {
+      console.log("✅ Auth Successful");
       return NextResponse.next();
     }
   }
 
-  // 3. If failed, trigger the browser's built-in Login Popup
+  console.log("⛔ Auth Failed/Missing - Showing Popup");
   url.pathname = "/api/auth";
   return new NextResponse("Auth Required", {
     status: 401,
