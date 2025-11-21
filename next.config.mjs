@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ["pdf-extraction"], // Prevents build errors with the PDF reader
+  // ⚠️ CRITICAL: This prevents Vercel from crashing when building pdfjs-dist
+  serverExternalPackages: ["pdfjs-dist"],
 };
 
 export default nextConfig;
