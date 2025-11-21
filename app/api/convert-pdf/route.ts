@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { openaiClient, SYSTEM_PROMPT } from "@/lib/openai";
 import { applyGlossaryToText, getGlossary } from "@/lib/glossary";
 
-// Force Node.js runtime (Standard for PDF processing)
+// Force Node.js runtime
 export const runtime = "nodejs";
 
 export const config = {
@@ -14,16 +14,17 @@ export const config = {
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. Dynamic Import (CORRECTED PATHS)
-    // We use the 'legacy' build which is optimized for Node.js environments.
-    // We removed '.min' because those files don't exist in the npm package.
-    // We use @ts-ignore because we are bypassing standard TS checks for these specific files.
-    
-    // @ts-ignore
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    
-    // @ts-ignore
-    await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    // 1. LAZY LOAD THE LIBRARY
+    // We require it here so it doesn't break the build time analysis
+    const pdfLib = require("pdf-parse");
+
+    // 2. UNWRAP LOGIC (The Fix for Next.js 15)
+    // Sometimes Next.js wraps the library in 'default', sometimes it doesn't.
+    // We check both.
+    let pdfParser = pdfLib;
+    if (typeof pdfParser !== 'function' && pdfParser.default) {
+        pdfParser = pdfParser.default;
+    }
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
@@ -36,42 +37,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "PDF file missing." }, { status: 400 });
     }
 
-    // 2. Prepare Data
+    // 3. Prepare Buffer
     const arrayBuffer = await file.arrayBuffer();
-    // pdfjs-dist expects a Uint8Array
-    const pdfData = new Uint8Array(arrayBuffer);
+    const pdfBuffer = Buffer.from(arrayBuffer);
 
     let extractedText = "";
 
     try {
-        // 3. Load Document
-        const loadingTask = pdfjs.getDocument({ data: pdfData });
-        const pdfDocument = await loadingTask.promise;
-
-        console.log(`📄 PDF Loaded. Pages: ${pdfDocument.numPages}`);
-
-        // 4. Extract Text Page by Page
-        for (let i = 1; i <= pdfDocument.numPages; i++) {
-            const page = await pdfDocument.getPage(i);
-            const textContent = await page.getTextContent();
-            
-            // Join the text items
-            const pageText = textContent.items
-                .map((item: any) => item.str)
-                .join(" ");
-                
-            extractedText += `\n${pageText}`;
-        }
+        // 4. EXECUTE PARSER
+        // We use the unwrapped function.
+        const data = await pdfParser(pdfBuffer);
+        extractedText = data.text.trim();
         
-        console.log(`✅ Success! Extracted ${extractedText.length} characters.`);
-
+        console.log(`📄 Success! Extracted ${extractedText.length} characters.`);
+        
     } catch (parseError: any) {
-        console.error("❌ PDF Engine Error:", parseError);
-        return NextResponse.json({ error: "Failed to parse PDF structure." }, { status: 400 });
+        console.error("❌ PDF Parse Error:", parseError);
+        return NextResponse.json({ error: "Failed to read PDF file." }, { status: 400 });
     }
 
     // 5. Validation
-    if (!extractedText || extractedText.trim().length < 20) {
+    if (!extractedText || extractedText.length < 50) {
       return NextResponse.json(
         { error: "No text found. This might be an image-only scan." },
         { status: 400 }
@@ -100,7 +86,7 @@ export async function POST(req: NextRequest) {
     try {
       parsedResume = JSON.parse(cleanJson);
       
-      // 7. APPLY OVERRIDES (The "Source of Truth")
+      // 7. APPLY OVERRIDES
       if (contactOverrides) {
          parsedResume.contactInfo = {
             ...parsedResume.contactInfo,

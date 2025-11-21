@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // ⚠️ CRITICAL: This prevents Vercel from crashing when building pdfjs-dist
-  serverExternalPackages: ["pdfjs-dist"],
+  // ⚠️ CRITICAL: This tells Next.js "Don't try to bundle this, just run it."
+  // This fixes the "Class constructor" and "Module not found" errors.
+  serverExternalPackages: ["pdf-parse"],
 };
 
 export default nextConfig;
