@@ -14,6 +14,8 @@ export const config = {
 
 export async function POST(req: NextRequest) {
   try {
+    
+    // @ts-ignore
     const pdfjs = await import("pdfjs-dist/build/pdf.min.mjs");
     await import("pdfjs-dist/build/pdf.worker.min.mjs");
 
